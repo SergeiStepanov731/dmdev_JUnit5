@@ -1,24 +1,40 @@
 package junit.service;
 
+import junit.TestBase;
 import junit.dto.User;
+import junit.extension.ConditionalExtension;
+import junit.extension.PostProcessingExtension;
+import junit.extension.ThrowableExtension;
+import junit.extension.UserServiceParamResolver;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestInfo;
 import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.api.TestMethodOrder;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
+import java.io.IOException;
+import java.time.Duration;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 // @TestInstance(TestInstance.Lifecycle.PER_METHOD)  by default
@@ -26,12 +42,23 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @Tag("user")
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 @TestMethodOrder(MethodOrderer.Random.class)
-public class UserServiceTest {
+@ExtendWith({
+        UserServiceParamResolver.class,
+        PostProcessingExtension.class,
+        ConditionalExtension.class,
+        ThrowableExtension.class
+//        GlobalExtension.class
+})
+public class UserServiceTest extends TestBase {
 
     private static final User IVAN = User.of(1, "Ivan", "123");
     private static final User OLEG = User.of(2, "Oleg", "123");
 
     private UserService userService;
+
+    public UserServiceTest(TestInfo testInfo) {
+        System.out.println();
+    }
 
     @BeforeAll
     void init() {
@@ -40,16 +67,19 @@ public class UserServiceTest {
 
 
     @BeforeEach
-    void prepare() {
+    void prepare(UserService userService) {
         System.out.println("Before each: " + this);
-        userService = new UserService();
+        this.userService = userService;
     }
 
 
     @Test
 //    @Order(1)
 //    @DisplayName("123")
-    void usersEmptyIfNoUserAdded() {
+    void usersEmptyIfNoUserAdded(UserService userService) throws IOException {
+        if (true) {
+            throw new RuntimeException();
+        }
         System.out.println("test1: " + this);
         var users = userService.getAll();
         assertTrue(users.isEmpty());
@@ -95,6 +125,7 @@ public class UserServiceTest {
 
 
         @Test
+        @Disabled("vot tak vot")
         void loginSuccessIfUserExist() {
             userService.add(IVAN);
             Optional<User> maybeUser = userService.login(IVAN.getUserName(), IVAN.getPassword());
@@ -104,6 +135,31 @@ public class UserServiceTest {
 //        maybeUser.ifPresent(user -> assertEquals(IVAN, user));
 
         }
+
+//        @Test
+//        void checkLoginFunctionalityPerformance() {
+//            Optional<User> result = assertTimeout(Duration.ofMillis(200L), () -> {
+//                Thread.sleep(300);
+//                return userService.login("dummy", IVAN.getPassword());
+//            });
+//
+//
+//        }
+
+        @Test
+//        @Timeout(value = 200, unit = TimeUnit.MICROSECONDS)
+        void checkLoginFunctionalityPerformance() {
+            System.out.println(Thread.currentThread().getName());
+            Optional<User> result = assertTimeoutPreemptively(Duration.ofMillis(600L), () -> {
+                System.out.println(Thread.currentThread().getName());
+                Thread.sleep(300);
+                return userService.login("dummy", IVAN.getPassword());
+            });
+
+
+        }
+
+
 
 //    @Test
 //    @Tag("login")
@@ -117,15 +173,18 @@ public class UserServiceTest {
 //    }
 
         @Test
+        @RepeatedTest(value = 5, name = RepeatedTest.LONG_DISPLAY_NAME)
         void throwExceptionIfUsernameOrPasswordIsNull() {
             assertAll(
                     () -> {
                         var exception = assertThrows(IllegalArgumentException.class, () -> userService.login(null, "dummy"));
                         assertThat(exception.getMessage()).isEqualTo("username or password is null");
                     },
-                    () -> assertThrows(IllegalArgumentException.class, () -> userService.login("dummy", null))
+                    () -> {
+                        var exception = assertThrows(IllegalArgumentException.class, () -> userService.login("dummy", null));
+                        assertThat(exception.getMessage()).isEqualTo("username or password is null");
+                    }
             );
-
         }
 
 
@@ -144,5 +203,36 @@ public class UserServiceTest {
         }
 
 
+        @ParameterizedTest(name = "{arguments} test")
+//        @ArgumentsSource()
+//        @NullSource
+//        @EmptySource
+//        @NullAndEmptySource
+//        @ValueSource(strings = {
+//                "Ivan", "Oleg"
+//        })
+//        @EnumSource
+        @MethodSource("junit.service.UserServiceTest#getArgumentsForLoginTest")
+//        @CsvFileSource(resources = "/login-test-data.csv", delimiter = ',', numLinesToSkip = 1)
+//        @CsvSource({
+//                "Ivan, 123",
+//                "Oleg, 123",
+//        })
+        @DisplayName("login param test")
+        void loginParameterizedTest(String userName, String password, Optional<User> user) {
+            userService.add(IVAN, OLEG);
+            Optional<User> maybeUser = userService.login(userName, password);
+            assertThat(maybeUser).isEqualTo(user);
+        }
+
+    }
+
+    static Stream<Arguments> getArgumentsForLoginTest() {
+        return Stream.of(
+                Arguments.of("Ivan", "123", Optional.of(IVAN)),
+                Arguments.of("Oleg", "123", Optional.of(OLEG)),
+                Arguments.of("Oleg", "dummy", Optional.empty()),
+                Arguments.of("dummy", "123", Optional.empty())
+        );
     }
 }
