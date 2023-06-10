@@ -1,5 +1,6 @@
 package junit.service;
 
+import junit.dao.UserDao;
 import junit.dto.User;
 
 import java.util.ArrayList;
@@ -11,14 +12,25 @@ import java.util.function.Function;
 
 import static java.util.stream.Collectors.toMap;
 
+
 public class UserService {
 
     private final List<User> users = new ArrayList<>();
+    private final UserDao userDao;
+
+    public UserService(UserDao userDao) {
+        this.userDao = userDao;
+    }
 
     public List<User> getAll() {
 
         return users;
     }
+
+    public boolean delete(Integer userId) {
+        return userDao.deleteByUserId(userId);
+    }
+
 
     public void add(User...users) {
         this.users.addAll(Arrays.asList(users));
